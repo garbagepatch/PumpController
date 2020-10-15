@@ -1,0 +1,6 @@
+asyncio==3.4.3
+mettler-toledo-device==1.5.0
+pyserial==3.4
+PySide2==5.15.0
+serial-interface==1.0.2
+shiboken2==5.15.0
