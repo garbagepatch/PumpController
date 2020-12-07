@@ -1,4 +1,4 @@
-import RPi.GPIO as gpio
+from masterflex.masterflex import MasterflexSerial
 from PySide2 import QtCore, QtGui, QtWidgets
 from PySide2.QtCore import *
 from PySide2.QtGui import *
@@ -13,43 +13,7 @@ import threading
 import asyncio.tasks
 import asyncio
 import queue
-
-
-class ScaleThread(QThread):
-    def __init__(self, portName):
-        QThread.__init__(self)
-        self.portName = portName
-        self.txq = queue.queue()
-        self.running = True
-        
-    def ser_out(self, s):
-        self.txq.put(s)
-
-    def ser_in(self, s):
-        display(s)
-
-     
-    def run(self):
-        try:
-            self.scalePort = MettlerToledoDevice(port=self.portName)
-        except:
-            self.scalePort = None
-        if not self.scalePort:
-            print("Serial Port troubs")
-            self.running = False
-        while(self.running):
-            s = self.scalePort.get_weight()
-            if s:
-                num = s[0]
-                numstr = int.Parse(num)
-                self.ser_in(numstr)
-            if not self.txq.empty():
-                txd = str(self.txq.get())
-                self.ser_out(txd)
-            if self.scalePort:
-                self.scalePort.close()
-                self.scalePort = None
-
+import numpy as npy
 
 
 
@@ -122,10 +86,9 @@ class Worker(QRunnable):
         self.scalePort = MettlerToledoDevice(port=self.name)
         if(self.isSerial == True):
             try:
-                self.pumpPort = serial.Serial(port=self.pumpname, baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
+                self.pumpPort = MasterflexSerial(self.pumpname, self.pumpPort)
             except:
                 self.pumpPort.close()
-                self.pumpPort = serial.Serial(port=self.pumpname, baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
         
         # Add the callback to our kwargs
     def stop(self):
@@ -143,9 +106,8 @@ class Worker(QRunnable):
 
             self.scalePort.close()
             self.running = False
-            gpio.cleanup()
     def factor_conversion(self):
-        if 0 < self.max < 5001:
+        if 0 < self.maxed < 5001:
             factor = 0.9
         elif 5001 <= self.max < 20001:
             factor = 0.99
@@ -157,24 +119,46 @@ class Worker(QRunnable):
         volt = self.rpm*0.016 
     @Slot()
     def run(self):
+        resultcounter = 0
+        resultarray = npy.array([])                  
+        deltaarray = npy.array([])
+        changecounter = 0
         if(self.pumpPort):
-            self.pumpPort.close()
-        else:
-           gpio.output(40, True)
-           
+            self.pumpPort.goContinuous()
         while(self.running):
             try:
-
+                
                 s = self.scalePort.get_weight()
                 if s:
+                    resultcounter += 1
+
                     num = s[0]
                     inum = int(num)
                     result = str(num)
+                    if resultcounter >= 5:
+                        resultarray.append(result)
+                        resultcounter = 0
+                        changecounter += 1
+                        if changecounter >=5:
+                           deltaarray.append(resultarray[len(resultarray)-1]-resultarray[-1])
+                           changecounter = 0
+                           if deltaarray[len(deltaarray)-1]-deltaarray[-1] <= 50:
+                               self.cancel()
+
+
+                    if len(resultarray) > 10:
+                        if len(resultarray) < 25:
+                            if sum(resultarray)/len(resultarray) <= 100:
+                                self.cancel()
+                        
+
+
                     self.signals.result.emit(result)
                     self.signals.progress.emit(100 * inum/int(0.9*self.factor_conversion()))
                     if (inum > int(self.factor_conversion())):
                         self.cancel()
                         break
+                    
    
                 if self.scalePort is None:
                     self.cancel()
@@ -198,9 +182,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         super(SerialControls, self).__init__()
         self.setupUi(self)
         sys.stdout = self
-        gpio.setmode(gpio.BOARD)
-        gpio.setup(40, gpio.OUT)
-
+      
         self.res = ''   
         ports = serial.tools.list_ports.comports()
         for port in ports:
@@ -216,7 +198,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.progressBar.setValue(1)
         self.progressBar.minimum = 0
         self.progressBar.maximum = 100
-        self.dial.changeEvent(self.change_speed)
+       ## self.dial.changeEvent(self.change_speed)
         if(self.serialCheck == True):
             try:
                 self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
@@ -233,8 +215,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.expStart.setChecked(False)
         if(self.serialCheck==True):
             self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
-        elif(self.serialCheck ==False):
-            gpio.cleanup()
+
         self.resultBox.appendPlainText('Shit has stopped, hopefully')
     def change_speed(self):
         speed = self.dial.value()

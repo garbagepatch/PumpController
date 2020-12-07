@@ -1,4 +1,4 @@
-import RPi.GPIO as gpio
+import RPi.GPIO as gp
 from PySide2 import QtCore, QtGui, QtWidgets
 from PySide2.QtCore import *
 from PySide2.QtGui import *
@@ -13,45 +13,13 @@ import threading
 import asyncio.tasks
 import asyncio
 import queue
-Device.pin_factory = MockFactory()
 
-class ScaleThread(QThread):
-    def __init__(self, portName):
-        QThread.__init__(self)
-        self.portName = portName
-        self.txq = queue.queue()
-        self.running = True
-        
-    def ser_out(self, s):
-        self.txq.put(s)
-
-    def ser_in(self, s):
-        display(s)
-
-     
-    def run(self):
-        try:
-            self.scalePort = MettlerToledoDevice(port=self.portName)
-        except:
-            self.scalePort = None
-        if not self.scalePort:
-            print("Serial Port troubs")
-            self.running = False
-        while(self.running):
-            s = self.scalePort.get_weight()
-            if s:
-                num = s[0]
-                numstr = int.Parse(num)
-                self.ser_in(numstr)
-            if not self.txq.empty():
-                txd = str(self.txq.get())
-                self.ser_out(txd)
-            if self.scalePort:
-                self.scalePort.close()
-                self.scalePort = None
-
-
-
+Signal_Pins = {
+    "Start" : 35,
+    "Speed" : 32,
+    "Direction" : 35,
+    "Remote" : 37
+}
 
 class WorkerSignals(QObject):
     '''
@@ -116,10 +84,6 @@ class Worker(QRunnable):
         self.kwargs = kwargs
         self.signals = WorkerSignals()
         self.running = True
-        
-        self.txq = queue.Queue()
- 
-        self.scalePort = MettlerToledoDevice(port=self.name)
         if(self.isSerial == True):
             try:
                 self.pumpPort = serial.Serial(port=self.pumpname, baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
@@ -127,9 +91,14 @@ class Worker(QRunnable):
                 self.pumpPort.close()
                 self.pumpPort = serial.Serial(port=self.pumpname, baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
         
+
+        
+        self.scalePort = MettlerToledoDevice(port=self.name)
+            
         # Add the callback to our kwargs
     def stop(self):
         self.event
+
     def cancel(self):
         if(self.isSerial == True):
             try:
@@ -143,7 +112,6 @@ class Worker(QRunnable):
 
             self.scalePort.close()
             self.running = False
-            gpio.cleanup()
     def factor_conversion(self):
         if 0 < self.max < 5001:
             factor = 0.9
@@ -157,14 +125,13 @@ class Worker(QRunnable):
         volt = self.rpm*0.016 
     @Slot()
     def run(self):
-        if(self.pumpPort):
-            self.pumpPort.close()
-        else:
-           gpio.output(40, True)
-           
+        if(self.isSerial == True):
+
+            if(self.pumpPort):
+                self.pumpPort.close()
+
         while(self.running):
             try:
-
                 s = self.scalePort.get_weight()
                 if s:
                     num = s[0]
@@ -187,7 +154,7 @@ class Worker(QRunnable):
         if (self.running == False):
             self.signals.finished.emit()
 
-            
+
          
 class SerialControls(QMainWindow, Ui_MainWindow):
     text_update = Signal(str)
@@ -198,8 +165,9 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         super(SerialControls, self).__init__()
         self.setupUi(self)
         sys.stdout = self
-        gpio.setmode(gpio.BOARD)
-        gpio.setup(40, gpio.OUT)
+        self.speed = 0
+        self.direction = False
+        self.initPins()
 
         self.res = ''   
         ports = serial.tools.list_ports.comports()
@@ -215,6 +183,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.timer.timeout.connect(self.recurring_timer)
         self.progressBar.setValue(1)
         self.progressBar.minimum = 0
+        self.rpm = self.dial.value
         self.progressBar.maximum = 100
         self.dial.changeEvent(self.change_speed)
         if(self.serialCheck == True):
@@ -234,13 +203,20 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         if(self.serialCheck==True):
             self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
         elif(self.serialCheck ==False):
-            gpio.cleanup()
+            self.speed.ChangeDutyCyle(0)
+            gp.output(37, 0)
+            gp.cleanup()
         self.resultBox.appendPlainText('Shit has stopped, hopefully')
     def change_speed(self):
-        speed = self.dial.value()
-        sr = speed/600
-        self.o.value = sr
-
+        self.rpm = self.dial.value/6
+       
+        self.speed.ChangeDutyCycle(self.rpm)        
+    def change_dir(self):
+        self.direction != self.direction
+        if(self.direction == True):
+            gp.output(38,1)
+        else:
+            gp.output(38,0)
         
 
     def setText(self, s):
@@ -249,9 +225,10 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.mutex.unlock()
     def startTheExp(self):
         name =self.scalePortList.currentText()
+        self.timer.start()
+        self.expStart.setChecked(True)
         if(self.serialCheck.isChecked() == True):
-            self.timer.start()
-            self.expStart.setChecked(True)
+
 
            
             pumpname = self.pumpPortList.currentText()
@@ -264,7 +241,15 @@ class SerialControls(QMainWindow, Ui_MainWindow):
             except:
                 self.pumpPort = None
         elif(self.serialCheck.isChecked() == False):
-            pumpname = "PWM"
+            try:
+                pumpname = "PWM"
+                self.speed.start(self.rpm)
+                gp.output(37,1)
+            except:
+                initPins()
+                try:
+                    self.speed.start(self.rpm)
+                    gp.output(37,1)
             try:
                 max = float(str(self.weightBox.text()))
             except:
@@ -277,6 +262,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         worker.signals.finished.connect(self.stopShit)
         worker.signals.progress.connect(self.setBar)
         self.threadpool.start(worker)
+
     def pump(self):
         if(self.pumpPort):
             self.pumpPort.close()
@@ -288,7 +274,14 @@ class SerialControls(QMainWindow, Ui_MainWindow):
     def recurring_timer(self):
         self.resultBox.appendPlainText(self.res)
         
-        
+    def initPins(self):
+        gp.setmode(gp.BOARD)
+        gp.setup(37, gp.OUT)
+        gp.setup(36, gp.OUT)
+        gp.setup(38, gp.OUT)
+        gp.setup(32, gp.OUT)
+        self.speed = gp.PWM(32, 1000)
+
 
 if __name__ == '__main__':
     import sys
