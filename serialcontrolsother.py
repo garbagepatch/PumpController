@@ -123,8 +123,8 @@ class Worker(QRunnable):
         resultarray = npy.array([])                  
         deltaarray = npy.array([])
         changecounter = 0
-        if(self.pumpPort):
-            self.pumpPort.goContinuous()
+        if(self.isSerial):
+            self.pumpPort.close()
         while(self.running):
             try:
                 
@@ -221,6 +221,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         speed = self.dial.value()
         sr = speed/600
         self.o.value = sr
+        self.resultBox.appendPlainText('Set speed to: ' + sr)
 
         
 

@@ -1,4 +1,4 @@
-import RPi.GPIO as gp
+
 from PySide2 import QtCore, QtGui, QtWidgets
 from PySide2.QtCore import *
 from PySide2.QtGui import *
@@ -13,13 +13,9 @@ import threading
 import asyncio.tasks
 import asyncio
 import queue
+from MasterflexPump import MasterflexPump
 
-Signal_Pins = {
-    "Start" : 35,
-    "Speed" : 32,
-    "Direction" : 35,
-    "Remote" : 37
-}
+
 
 class WorkerSignals(QObject):
     '''
@@ -45,19 +41,10 @@ class WorkerSignals(QObject):
     result = Signal(object)
     connected = Signal(str)
     progress = Signal(int)
+    pumpStart = Signal()
+    pumpStop = Signal()
 
-class PumpWorker(QRunnable):
-    def __init__(self, name):
-        super(PumpWorker, self).__init__()
-        self.name = name
-        self.running = True
-        self.pumpPort = serial.Serial(port=name, baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
-    def run(self):
-        while(self.running):
-            if self.pumpPort.is_open:
-                self.pumpPort.close()
 
-        
 
 class Worker(QRunnable):
     '''
@@ -109,7 +96,8 @@ class Worker(QRunnable):
                 self.scalePort = None
                 self.pumpPort = None
         else:
-
+            
+            self.signals.pumpStop.emit()
             self.scalePort.close()
             self.running = False
     def factor_conversion(self):
@@ -126,7 +114,6 @@ class Worker(QRunnable):
     @Slot()
     def run(self):
         if(self.isSerial == True):
-
             if(self.pumpPort):
                 self.pumpPort.close()
 
@@ -166,14 +153,16 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         sys.stdout = self
         self.speed = 0
+        app.aboutToQuit.connect(self.closeEvent)
         self.direction = False
-        self.initPins()
 
         self.res = ''   
         ports = serial.tools.list_ports.comports()
         for port in ports:
             self.scalePortList.addItem(port.device)
             self.pumpPortList.addItem(port.device)
+        if(len(ports)<=1):
+            self.pump = MasterflexPump()
         self.stopButton.clicked.connect(self.stopShit)
         self.setWindowTitle("Sup")
         self.counter = 0
@@ -185,7 +174,8 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.progressBar.minimum = 0
         self.rpm = self.dial.value
         self.progressBar.maximum = 100
-        self.dial.changeEvent(self.change_speed)
+        self.pumpStarted = False
+        self.dial.valueChanged.connect(self.change_speed)
         if(self.serialCheck == True):
             try:
                 self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
@@ -195,6 +185,13 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.threadpool = QThreadPool()
         self.expStart.clicked.connect(self.startTheExp)
         self.mutex = QMutex()
+    def closeEvent(self):
+        self.resultBox.appendPlainText('Close button pressed')
+        import sys
+        sys.exit(0)
+    def stopPump(self):
+        self.pumpStarted = False
+        self.pump.stop()
 
     def stopShit(self):
         self.event_stop.set()
@@ -203,21 +200,16 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         if(self.serialCheck==True):
             self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
         elif(self.serialCheck ==False):
-            self.speed.ChangeDutyCyle(0)
-            gp.output(37, 0)
-            gp.cleanup()
+            if(self.pumpStarted == True):
+                self.pump.cancel()
+
         self.resultBox.appendPlainText('Shit has stopped, hopefully')
     def change_speed(self):
-        self.rpm = self.dial.value/6
+        rpm = self.dial.value
        
-        self.speed.ChangeDutyCycle(self.rpm)        
+        self.pump.changeSpeed(rpm)     
     def change_dir(self):
-        self.direction != self.direction
-        if(self.direction == True):
-            gp.output(38,1)
-        else:
-            gp.output(38,0)
-        
+        self.pump.changeDir()       
 
     def setText(self, s):
         self.mutex.lock()
@@ -243,14 +235,8 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         elif(self.serialCheck.isChecked() == False):
             try:
                 pumpname = "PWM"
-                self.speed.start(self.rpm)
-                gp.output(37,1)
-            except:
-                initPins()
-                try:
-                    self.speed.start(self.rpm)
-                    gp.output(37,1)
-            try:
+                self.pumpStarted = True
+                self.pump.start()
                 max = float(str(self.weightBox.text()))
             except:
                 max = 0.00
@@ -261,27 +247,16 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         worker.signals.result.connect(self.setText)
         worker.signals.finished.connect(self.stopShit)
         worker.signals.progress.connect(self.setBar)
+        worker.singals.pumpStop.connect(self.stopPump)
         self.threadpool.start(worker)
 
-    def pump(self):
-        if(self.pumpPort):
-            self.pumpPort.close()
-        elif(self.pumpPort.is_open() ==False):
-            self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
+   
     def setBar(self, per):
         self.progressBar.setValue(per)
 
     def recurring_timer(self):
         self.resultBox.appendPlainText(self.res)
         
-    def initPins(self):
-        gp.setmode(gp.BOARD)
-        gp.setup(37, gp.OUT)
-        gp.setup(36, gp.OUT)
-        gp.setup(38, gp.OUT)
-        gp.setup(32, gp.OUT)
-        self.speed = gp.PWM(32, 1000)
-
 
 if __name__ == '__main__':
     import sys
