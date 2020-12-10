@@ -2,7 +2,7 @@
 from PySide2 import QtCore, QtGui, QtWidgets
 from PySide2.QtCore import *
 from PySide2.QtGui import *
-from PySide2.QtWidgets import QApplication, QMainWindow
+from PySide2.QtWidgets import QApplication, QMainWindow, QMenu, QAction, QToolBar
 from PySide2.QtUiTools import QUiLoader
 import sys
 from Ui_mainwindow import Ui_MainWindow
@@ -153,9 +153,11 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         sys.stdout = self
         self.speed = 0
+        self._createActions()
+        self._createToolBars()
         app.aboutToQuit.connect(self.closeEvent)
         self.direction = False
-
+        self._createMenuBar()
         self.res = ''   
         ports = serial.tools.list_ports.comports()
         for port in ports:
@@ -185,6 +187,35 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.threadpool = QThreadPool()
         self.expStart.clicked.connect(self.startTheExp)
         self.mutex = QMutex()
+    def _createMenuBar(self):
+        menuBar = self.menuBar()
+        fileMenu = QMenu("&File", self)
+        menuBar.addMenu(fileMenu)
+        # Creating menus using a title
+        editMenu = menuBar.addMenu("&Edit")
+        helpMenu = menuBar.addMenu("&Help")
+    def _createToolBars(self):
+        # Using a title
+        fileToolBar = self.addToolBar("File")
+        # Using a QToolBar object
+        editToolBar = QToolBar("Edit", self)
+        self.addToolBar(editToolBar)
+        # Using a QToolBar object and a toolbar area
+        helpToolBar = QToolBar("Help", self)
+        self.addToolBar(Qt.LeftToolBarArea, helpToolBar)
+    def _createActions(self):
+        # Creating action using the first constructor
+        self.newAction = QAction(self)
+        self.newAction.setText("&New")
+        # Creating actions using the second constructor
+        self.openAction = QAction("&Open...", self)
+        self.saveAction = QAction("&Save", self)
+        self.exitAction = QAction("&Exit", self)
+        self.copyAction = QAction("&Copy", self)
+        self.pasteAction = QAction("&Paste", self)
+        self.cutAction = QAction("C&ut", self)
+        self.helpContentAction = QAction("&Help Content", self)
+        self.aboutAction = QAction("&About", self)
     def closeEvent(self):
         self.resultBox.appendPlainText('Close button pressed')
         import sys
