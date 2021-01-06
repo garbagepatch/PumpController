@@ -250,27 +250,22 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         name =self.scalePortList.currentText()
         self.timer.start()
         self.expStart.setChecked(True)
-        if(self.serialCheck.isChecked() == True):
+        if self.serialCheck.isChecked():
             pumpname = self.pumpPortList.currentText()
             try:
                 max = float(str(self.weightBox.text()))
-            except:
-                max = 0.00
-            try:
                 self.pumpPort.close()
             except:
+                max = 0.00
                 self.pumpPort = None
-        elif(self.serialCheck.isChecked() == False):
+        else:
             try:
                 pumpname = "PWM"
                 self.pumpStarted = True
-                self.pump.start(self.rpm)
+                self.pump.start(self.rpm) 
                 max = float(str(self.weightBox.text()))
             except:
                 max = 0.00
-            
-
-
         worker = Worker(name, pumpname, max, self.serialCheck.isChecked())
         worker.signals.result.connect(self.setText)
         worker.signals.finished.connect(self.stopShit)
