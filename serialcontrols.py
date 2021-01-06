@@ -267,7 +267,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
             try:
                 pumpname = "PWM"
                 self.pumpStarted = True
-                self.pump.start()
+                self.pump.start(self.rpm)
                 max = float(str(self.weightBox.text()))
             except:
                 max = 0.00
