@@ -251,9 +251,6 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.timer.start()
         self.expStart.setChecked(True)
         if(self.serialCheck.isChecked() == True):
-
-
-           
             pumpname = self.pumpPortList.currentText()
             try:
                 max = float(str(self.weightBox.text()))
@@ -278,7 +275,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         worker.signals.result.connect(self.setText)
         worker.signals.finished.connect(self.stopShit)
         worker.signals.progress.connect(self.setBar)
-        worker.singals.pumpStop.connect(self.stopPump)
+        worker.signals.pumpStop.connect(self.stopPump)
         self.threadpool.start(worker)
 
    
