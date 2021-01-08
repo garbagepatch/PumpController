@@ -2,7 +2,7 @@
 from PySide2 import QtCore, QtGui, QtWidgets
 from PySide2.QtCore import *
 from PySide2.QtGui import *
-from PySide2.QtWidgets import QApplication, QMainWindow, QMenu, QAction, QToolBar
+from PySide2.QtWidgets import QApplication, QMessageBox, QMainWindow, QMenu, QAction, QToolBar
 from PySide2.QtUiTools import QUiLoader
 import sys
 from Ui_mainwindow import Ui_MainWindow
@@ -66,6 +66,7 @@ class Worker(QRunnable):
         # Store constructor arguments (re-used for processing)
         self.name = name
         self.max = max
+        self.isPaused = False
         self.pumpname = pumpname
         self.isSerial = isSerial
         self.kwargs = kwargs
@@ -85,7 +86,10 @@ class Worker(QRunnable):
         # Add the callback to our kwargs
     def stop(self):
         self.event
-
+    def pause(self):
+        self.isPaused = True
+    def resume(self):
+        self.isPaused = False
     def cancel(self):
         if(self.isSerial == True):
             try:
@@ -118,6 +122,8 @@ class Worker(QRunnable):
                 self.pumpPort.close()
 
         while(self.running):
+            while self.isPaused:
+                time.sleep(0)
             try:
                 s = self.scalePort.get_weight()
                 if s:
@@ -216,11 +222,17 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         self.cutAction = QAction("C&ut", self)
         self.helpContentAction = QAction("&Help Content", self)
         self.aboutAction = QAction("&About", self)
-    def closeEvent(self):
+   def closeEvent(self, event):
         self.resultBox.appendPlainText('Close button pressed')
         import sys
-        sys.exit(0)
-    def stopPump(self):
+        import RPi.GPIO as gp
+        close = QMessageBox.question(self, "&Close", "Sure?", QMessageBox.Yes | QMessageBox.No)
+        if close == QMessageBox.Yes:
+             event.accept()
+             gp.cleanup()
+             sys.exit(0)
+        else:
+             event.ignore()
         self.pumpStarted = False
         self.pump.stop()
 
@@ -236,7 +248,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
 
         self.resultBox.appendPlainText('Shit has stopped, hopefully')
     def change_speed(self):
-        rpm = self.dial.value
+        rpm = self.dial.value()
        
         self.pump.changeSpeed(rpm)     
     def change_dir(self):
@@ -262,6 +274,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
             try:
                 pumpname = "PWM"
                 self.pumpStarted = True
+                self.rpm = self.dial.value()
                 self.pump.start(self.rpm) 
                 max = float(str(self.weightBox.text()))
             except:
@@ -270,6 +283,8 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         worker.signals.result.connect(self.setText)
         worker.signals.finished.connect(self.stopShit)
         worker.signals.progress.connect(self.setBar)
+        self.dial.sliderMoved.connect(worker.pause)
+        self.dial.sliderReleased.connect(worker.resume)
         worker.signals.pumpStop.connect(self.stopPump)
         self.threadpool.start(worker)
 
