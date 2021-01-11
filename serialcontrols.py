@@ -169,8 +169,6 @@ class SerialControls(QMainWindow, Ui_MainWindow):
         for port in ports:
             self.scalePortList.addItem(port.device)
             self.pumpPortList.addItem(port.device)
-        if(len(ports)<=1):
-            self.pump = MasterflexPump()
         self.stopButton.clicked.connect(self.stopShit)
         self.setWindowTitle("Sup")
         self.counter = 0
@@ -189,6 +187,12 @@ class SerialControls(QMainWindow, Ui_MainWindow):
                 self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
             except:
                 self.pumpPort = None
+        else:
+            try:
+                self.pump = MasterflexPump()
+            except:
+                print("This shit is bananas")
+
 
         self.threadpool = QThreadPool()
         self.expStart.clicked.connect(self.startTheExp)
@@ -244,7 +248,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
             self.pumpPort = serial.Serial(port=self.pumpPortList.currentText(), baudrate=4800, bytesize=serial.SEVENBITS, parity=serial.PARITY_ODD, timeout= 1 )
         elif(self.serialCheck ==False):
             if(self.pumpStarted == True):
-                self.pump.cancel()
+                self.pump.close()
 
         self.resultBox.appendPlainText('Shit has stopped, hopefully')
     def change_speed(self):
@@ -279,6 +283,7 @@ class SerialControls(QMainWindow, Ui_MainWindow):
                 max = float(str(self.weightBox.text()))
             except:
                 max = 0.00
+                self.rpm = 0
         worker = Worker(name, pumpname, max, self.serialCheck.isChecked())
         worker.signals.result.connect(self.setText)
         worker.signals.finished.connect(self.stopShit)
